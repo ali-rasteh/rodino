@@ -27,6 +27,7 @@ import torch.nn as nn
 import torch.distributed as dist
 import torch.backends.cudnn as cudnn
 import torch.nn.functional as F
+from advertorch.attacks import LinfPGDAttack
 from torchvision import datasets, transforms
 from torchvision import models as torchvision_models
 
@@ -136,24 +137,6 @@ def train_dino(args):
     print("\n".join("%s: %s" % (k, str(v)) for k, v in sorted(dict(vars(args)).items())))
     cudnn.benchmark = True
 
-    # ============ preparing data ... ============
-    transform = DataAugmentationDINO(
-        args.global_crops_scale,
-        args.local_crops_scale,
-        args.local_crops_number,
-    )
-    dataset = datasets.ImageFolder(args.data_path, transform=transform)
-    sampler = torch.utils.data.DistributedSampler(dataset, shuffle=True)
-    data_loader = torch.utils.data.DataLoader(
-        dataset,
-        sampler=sampler,
-        batch_size=args.batch_size_per_gpu,
-        num_workers=args.num_workers,
-        pin_memory=True,
-        drop_last=True,
-    )
-    print(f"Data loaded: there are {len(dataset)} images.")
-
     # ============ building student and teacher networks ... ============
     # we changed the name DeiT-S for ViT-S to avoid confusions
     args.arch = args.arch.replace("deit", "vit")
@@ -210,6 +193,24 @@ def train_dino(args):
     for p in teacher.parameters():
         p.requires_grad = False
     print(f"Student and Teacher are built: they are both {args.arch} network.")
+    # ============ preparing data ... ============
+    transform = DataAugmentationDINO(
+        args.global_crops_scale,
+        args.local_crops_scale,
+        args.local_crops_number,
+        student.backbone
+    )
+    dataset = datasets.ImageFolder(args.data_path, transform=transform)
+    sampler = torch.utils.data.DistributedSampler(dataset, shuffle=True)
+    data_loader = torch.utils.data.DataLoader(
+        dataset,
+        sampler=sampler,
+        batch_size=args.batch_size_per_gpu,
+        num_workers=args.num_workers,
+        pin_memory=True,
+        drop_last=True,
+    )
+    print(f"Data loaded: there are {len(dataset)} images.")
 
     # ============ preparing loss ... ============
     dino_loss = DINOLoss(
@@ -271,8 +272,8 @@ def train_dino(args):
 
         # ============ training one epoch of DINO ... ============
         train_stats = train_one_epoch(student, teacher, teacher_without_ddp, dino_loss,
-            data_loader, optimizer, lr_schedule, wd_schedule, momentum_schedule,
-            epoch, fp16_scaler, args)
+                                      data_loader, optimizer, lr_schedule, wd_schedule, momentum_schedule,
+                                      epoch, fp16_scaler, args)
 
         # ============ writing logs ... ============
         save_dict = {
@@ -299,7 +300,7 @@ def train_dino(args):
 
 
 def train_one_epoch(student, teacher, teacher_without_ddp, dino_loss, data_loader,
-                    optimizer, lr_schedule, wd_schedule, momentum_schedule,epoch,
+                    optimizer, lr_schedule, wd_schedule, momentum_schedule, epoch,
                     fp16_scaler, args):
     metric_logger = utils.MetricLogger(delimiter="  ")
     header = 'Epoch: [{}/{}]'.format(epoch, args.epochs)
@@ -417,7 +418,8 @@ class DINOLoss(nn.Module):
 
 
 class DataAugmentationDINO(object):
-    def __init__(self, global_crops_scale, local_crops_scale, local_crops_number):
+    def __init__(self, global_crops_scale, local_crops_scale, local_crops_number, target_model):
+        self.target_model = target_model
         flip_and_color_jitter = transforms.Compose([
             transforms.RandomHorizontalFlip(p=0.5),
             transforms.RandomApply(
@@ -432,6 +434,11 @@ class DataAugmentationDINO(object):
         ])
 
         # first global crop
+        self.naive_transfo1 = transforms.Compose([
+            transforms.CenterCrop(224),
+            transforms.ToTensor(),
+        ])
+
         self.global_transfo1 = transforms.Compose([
             transforms.RandomResizedCrop(224, scale=global_crops_scale, interpolation=Image.BICUBIC),
             flip_and_color_jitter,
@@ -455,12 +462,17 @@ class DataAugmentationDINO(object):
             normalize,
         ])
 
+    def _generate_attack(self, img):
+        adversary = LinfPGDAttack(self.target_model, loss_fn=None, eps=10.0, nb_iter=50, eps_iter=0.01, rand_init=True,
+                                  clip_min=0.0, clip_max=1.0, targeted=False)
+        return adversary(img, self.target_model(img))
+
     def __call__(self, image):
         crops = []
         crops.append(self.global_transfo1(image))
         crops.append(self.global_transfo2(image))
-        for _ in range(self.local_crops_number):
-            crops.append(self.local_transfo(image))
+        # for _ in range(self.local_crops_number):
+        crops.append(self._generate_attack(self.naive_transfo1(image)))
         return crops
 
 
