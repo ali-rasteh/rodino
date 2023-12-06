@@ -392,14 +392,15 @@ class MetricLogger(object):
                         i, len(iterable), eta=eta_string,
                         meters=str(self),
                         time=str(iter_time), data=str(data_time)))
+            print('', flush=True)
             i += 1
             end = time.time()
         total_time = time.time() - start_time
         total_time_str = str(datetime.timedelta(seconds=int(total_time)))
         print('{} Total time: {} ({:.6f} s / it)'.format(
             header, total_time_str, total_time / len(iterable)), flush=True)
-        print('', flush=True)
-        sys.stdout.flush()
+        p
+
 
 
 def get_sha():
