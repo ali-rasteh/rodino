@@ -399,6 +399,7 @@ class MetricLogger(object):
         print('{} Total time: {} ({:.6f} s / it)'.format(
             header, total_time_str, total_time / len(iterable)), flush=True)
         print('', flush=True)
+        sys.stdout.flush()
 
 
 def get_sha():
