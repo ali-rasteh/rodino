@@ -308,9 +308,7 @@ def train_one_epoch(student, teacher, teacher_without_ddp, dino_loss, data_loade
     metric_logger = utils.MetricLogger(delimiter="  ")
     header = 'Epoch: [{}/{}]'.format(epoch, args.epochs)
     for it, (images, _) in enumerate(metric_logger.log_every(data_loader, 10, header)):
-        print('len_of_images: ', len(images))
-        for img in images:
-            print(img.shape)
+
         # update weight decay and learning rate according to their schedule
         it = len(data_loader) * epoch + it  # global training iteration
         for i, param_group in enumerate(optimizer.param_groups):
@@ -471,7 +469,9 @@ class DataAugmentationDINO(object):
     def _generate_attack(self, img):
         adversary = LinfPGDAttack(self.target_model, loss_fn=None, eps=10.0, nb_iter=50, eps_iter=0.01, rand_init=True,
                                   clip_min=0.0, clip_max=1.0, targeted=False)
-        return adversary(img, self.target_model(img))
+        adv_img = adversary(img, self.target_model(img))
+        print('shape of adv image: ', adv_img.shape)
+        return adv_img
 
     def __call__(self, image):
         crops = []
