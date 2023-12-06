@@ -316,6 +316,8 @@ def train_one_epoch(student, teacher, teacher_without_ddp, dino_loss, data_loade
     metric_logger = utils.MetricLogger(delimiter="  ")
     header = 'Epoch: [{}/{}]'.format(epoch, args.epochs)
     for it, (images, _) in enumerate(metric_logger.log_every(data_loader, 10, header)):
+        print(images[-1].shape)
+        print(generate_attack(images[-1], student_backbone).shape)
         images[-1] = images.append(generate_attack(images[-1], student_backbone))
         # update weight decay and learning rate according to their schedule
         it = len(data_loader) * epoch + it  # global training iteration
