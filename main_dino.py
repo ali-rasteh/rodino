@@ -36,17 +36,18 @@ import vision_transformer as vits
 from vision_transformer import DINOHead
 
 torchvision_archs = sorted(name for name in torchvision_models.__dict__
-    if name.islower() and not name.startswith("__")
-    and callable(torchvision_models.__dict__[name]))
+                           if name.islower() and not name.startswith("__")
+                           and callable(torchvision_models.__dict__[name]))
+
 
 def get_args_parser():
     parser = argparse.ArgumentParser('DINO', add_help=False)
 
     # Model parameters
     parser.add_argument('--arch', default='vit_small', type=str,
-        choices=['vit_tiny', 'vit_small', 'vit_base', 'xcit', 'deit_tiny', 'deit_small'] \
-                + torchvision_archs + torch.hub.list("facebookresearch/xcit:main"),
-        help="""Name of architecture to train. For quick experiments with ViTs,
+                        choices=['vit_tiny', 'vit_small', 'vit_base', 'xcit', 'deit_tiny', 'deit_small'] \
+                                + torchvision_archs + torch.hub.list("facebookresearch/xcit:main"),
+                        help="""Name of architecture to train. For quick experiments with ViTs,
         we recommend using vit_tiny or vit_small.""")
     parser.add_argument('--patch_size', default=16, type=int, help="""Size in pixels
         of input square patches - default 16 (for 16x16 patches). Using smaller
@@ -56,24 +57,24 @@ def get_args_parser():
     parser.add_argument('--out_dim', default=65536, type=int, help="""Dimensionality of
         the DINO head output. For complex and large datasets large values (like 65k) work well.""")
     parser.add_argument('--norm_last_layer', default=True, type=utils.bool_flag,
-        help="""Whether or not to weight normalize the last layer of the DINO head.
+                        help="""Whether or not to weight normalize the last layer of the DINO head.
         Not normalizing leads to better performance but can make the training unstable.
         In our experiments, we typically set this paramater to False with vit_small and True with vit_base.""")
     parser.add_argument('--momentum_teacher', default=0.996, type=float, help="""Base EMA
         parameter for teacher update. The value is increased to 1 during training with cosine schedule.
         We recommend setting a higher value with small batches: for example use 0.9995 with batch size of 256.""")
     parser.add_argument('--use_bn_in_head', default=False, type=utils.bool_flag,
-        help="Whether to use batch normalizations in projection head (Default: False)")
+                        help="Whether to use batch normalizations in projection head (Default: False)")
 
     # Temperature teacher parameters
     parser.add_argument('--warmup_teacher_temp', default=0.04, type=float,
-        help="""Initial value for the teacher temperature: 0.04 works well in most cases.
+                        help="""Initial value for the teacher temperature: 0.04 works well in most cases.
         Try decreasing it if the training loss does not decrease.""")
     parser.add_argument('--teacher_temp', default=0.04, type=float, help="""Final value (after linear warmup)
         of the teacher temperature. For most experiments, anything above 0.07 is unstable. We recommend
         starting with the default value of 0.04 and increase this slightly if needed.""")
     parser.add_argument('--warmup_teacher_temp_epochs', default=0, type=int,
-        help='Number of warmup epochs for the teacher temperature (Default: 30).')
+                        help='Number of warmup epochs for the teacher temperature (Default: 30).')
 
     # Training/Optimization parameters
     parser.add_argument('--use_fp16', type=utils.bool_flag, default=True, help="""Whether or not
@@ -89,7 +90,7 @@ def get_args_parser():
         gradient norm if using gradient clipping. Clipping with norm .3 ~ 1.0 can
         help optimization for larger ViT architectures. 0 for disabling.""")
     parser.add_argument('--batch_size_per_gpu', default=64, type=int,
-        help='Per-GPU batch-size : number of distinct images loaded on one GPU.')
+                        help='Per-GPU batch-size : number of distinct images loaded on one GPU.')
     parser.add_argument('--epochs', default=100, type=int, help='Number of epochs of training.')
     parser.add_argument('--freeze_last_layer', default=1, type=int, help="""Number of epochs
         during which we keep the output layer fixed. Typically doing so during
@@ -98,28 +99,29 @@ def get_args_parser():
         linear warmup (highest LR used during training). The learning rate is linearly scaled
         with the batch size, and specified here for a reference batch size of 256.""")
     parser.add_argument("--warmup_epochs", default=10, type=int,
-        help="Number of epochs for the linear learning-rate warm up.")
+                        help="Number of epochs for the linear learning-rate warm up.")
     parser.add_argument('--min_lr', type=float, default=1e-6, help="""Target LR at the
         end of optimization. We use a cosine LR schedule with linear warmup.""")
     parser.add_argument('--optimizer', default='adamw', type=str,
-        choices=['adamw', 'sgd', 'lars'], help="""Type of optimizer. We recommend using adamw with ViTs.""")
+                        choices=['adamw', 'sgd', 'lars'],
+                        help="""Type of optimizer. We recommend using adamw with ViTs.""")
     parser.add_argument('--drop_path_rate', type=float, default=0.1, help="stochastic depth rate")
 
     # Multi-crop parameters
     parser.add_argument('--global_crops_scale', type=float, nargs='+', default=(0.4, 1.),
-        help="""Scale range of the cropped image before resizing, relatively to the origin image.
+                        help="""Scale range of the cropped image before resizing, relatively to the origin image.
         Used for large global view cropping. When disabling multi-crop (--local_crops_number 0), we
         recommand using a wider range of scale ("--global_crops_scale 0.14 1." for example)""")
     parser.add_argument('--local_crops_number', type=int, default=8, help="""Number of small
         local views to generate. Set this parameter to 0 to disable multi-crop training.
         When disabling multi-crop we recommend to use "--global_crops_scale 0.14 1." """)
     parser.add_argument('--local_crops_scale', type=float, nargs='+', default=(0.05, 0.4),
-        help="""Scale range of the cropped image before resizing, relatively to the origin image.
+                        help="""Scale range of the cropped image before resizing, relatively to the origin image.
         Used for small local view cropping of multi-crop.""")
 
     # Misc
     parser.add_argument('--data_path', default='/path/to/imagenet/train/', type=str,
-        help='Please specify path to the ImageNet training data.')
+                        help='Please specify path to the ImageNet training data.')
     parser.add_argument('--output_dir', default=".", type=str, help='Path to save logs and checkpoints.')
     parser.add_argument('--saveckp_freq', default=20, type=int, help='Save checkpoint every x epochs.')
     parser.add_argument('--seed', default=0, type=int, help='Random seed.')
@@ -136,6 +138,23 @@ def train_dino(args):
     print("git:\n  {}\n".format(utils.get_sha()))
     print("\n".join("%s: %s" % (k, str(v)) for k, v in sorted(dict(vars(args)).items())))
     cudnn.benchmark = True
+    # ============ preparing data ... ============
+    transform = DataAugmentationDINO(
+        args.global_crops_scale,
+        args.local_crops_scale,
+        args.local_crops_number
+    )
+    dataset = datasets.ImageFolder(args.data_path, transform=transform)
+    sampler = torch.utils.data.DistributedSampler(dataset, shuffle=True)
+    data_loader = torch.utils.data.DataLoader(
+        dataset,
+        sampler=sampler,
+        batch_size=args.batch_size_per_gpu,
+        num_workers=args.num_workers,
+        pin_memory=True,
+        drop_last=True,
+    )
+    print(f"Data loaded: there are {len(dataset)} images.")
 
     # ============ building student and teacher networks ... ============
     # we changed the name DeiT-S for ViT-S to avoid confusions
@@ -169,26 +188,7 @@ def train_dino(args):
         use_bn=args.use_bn_in_head,
         norm_last_layer=args.norm_last_layer,
     ))
-
-    # ============ preparing data ... ============
-    transform = DataAugmentationDINO(
-        args.global_crops_scale,
-        args.local_crops_scale,
-        args.local_crops_number,
-        student.backbone
-    )
-    dataset = datasets.ImageFolder(args.data_path, transform=transform)
-    sampler = torch.utils.data.DistributedSampler(dataset, shuffle=True)
-    data_loader = torch.utils.data.DataLoader(
-        dataset,
-        sampler=sampler,
-        batch_size=args.batch_size_per_gpu,
-        num_workers=args.num_workers,
-        pin_memory=True,
-        drop_last=True,
-    )
-    print(f"Data loaded: there are {len(dataset)} images.")
-
+    student_backbone = student.backbone
     teacher = utils.MultiCropWrapper(
         teacher,
         DINOHead(embed_dim, args.out_dim, args.use_bn_in_head),
@@ -213,7 +213,6 @@ def train_dino(args):
     for p in teacher.parameters():
         p.requires_grad = False
     print(f"Student and Teacher are built: they are both {args.arch} network.")
-
 
     # ============ preparing loss ... ============
     dino_loss = DINOLoss(
@@ -276,7 +275,7 @@ def train_dino(args):
         # ============ training one epoch of DINO ... ============
         train_stats = train_one_epoch(student, teacher, teacher_without_ddp, dino_loss,
                                       data_loader, optimizer, lr_schedule, wd_schedule, momentum_schedule,
-                                      epoch, fp16_scaler, args)
+                                      epoch, fp16_scaler, student_backbone, args)
 
         # ============ writing logs ... ============
         save_dict = {
@@ -302,13 +301,22 @@ def train_dino(args):
     print('Training time {}'.format(total_time_str))
 
 
+def generate_attack(img, target_model):
+    print(img.shape)
+    adversary = LinfPGDAttack(target_model, loss_fn=None, eps=10.0, nb_iter=50, eps_iter=0.01,
+                              rand_init=True,
+                              clip_min=0.0, clip_max=1.0, targeted=False)
+    adv_img = adversary(img, target_model(img))
+    return adv_img
+
+
 def train_one_epoch(student, teacher, teacher_without_ddp, dino_loss, data_loader,
                     optimizer, lr_schedule, wd_schedule, momentum_schedule, epoch,
-                    fp16_scaler, args):
+                    fp16_scaler, student_backbone, args):
     metric_logger = utils.MetricLogger(delimiter="  ")
     header = 'Epoch: [{}/{}]'.format(epoch, args.epochs)
     for it, (images, _) in enumerate(metric_logger.log_every(data_loader, 10, header)):
-
+        images[-1] = images.append(generate_attack(images[-1], student_backbone))
         # update weight decay and learning rate according to their schedule
         it = len(data_loader) * epoch + it  # global training iteration
         for i, param_group in enumerate(optimizer.param_groups):
@@ -422,8 +430,7 @@ class DINOLoss(nn.Module):
 
 
 class DataAugmentationDINO(object):
-    def __init__(self, global_crops_scale, local_crops_scale, local_crops_number, target_model):
-        self.target_model = target_model
+    def __init__(self, global_crops_scale, local_crops_scale, local_crops_number):
         flip_and_color_jitter = transforms.Compose([
             transforms.RandomHorizontalFlip(p=0.5),
             transforms.RandomApply(
@@ -466,19 +473,11 @@ class DataAugmentationDINO(object):
             normalize,
         ])
 
-    def _generate_attack(self, img):
-        adversary = LinfPGDAttack(self.target_model, loss_fn=None, eps=10.0, nb_iter=50, eps_iter=0.01, rand_init=True,
-                                  clip_min=0.0, clip_max=1.0, targeted=False)
-        adv_img = adversary(img, self.target_model(img))
-        print('shape of adv image: ', adv_img.shape)
-        return adv_img
-
     def __call__(self, image):
         crops = []
         crops.append(self.global_transfo1(image))
         crops.append(self.global_transfo2(image))
-        # for _ in range(self.local_crops_number):
-        crops.append(self._generate_attack(self.naive_transfo1(image)))
+        crops.append(self.naive_transfo1(image))
         return crops
 
 
