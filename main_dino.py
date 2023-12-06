@@ -265,6 +265,7 @@ def train_dino(args):
         fp16_scaler=fp16_scaler,
         dino_loss=dino_loss,
     )
+    print(f'Checkpoint {os.path.join(args.output_dir, "checkpoint.pth")} is loaded.')
     start_epoch = to_restore["epoch"]
 
     start_time = time.time()
