@@ -188,7 +188,7 @@ def train_dino(args):
         use_bn=args.use_bn_in_head,
         norm_last_layer=args.norm_last_layer,
     ))
-    student_backbone = student.backbone
+    student_backbone = student.backbone.cuda()
     teacher = utils.MultiCropWrapper(
         teacher,
         DINOHead(embed_dim, args.out_dim, args.use_bn_in_head),
@@ -302,7 +302,6 @@ def train_dino(args):
 
 
 def generate_attack(img, target_model):
-    print(img.shape)
     adversary = LinfPGDAttack(target_model, loss_fn=None, eps=10.0, nb_iter=50, eps_iter=0.01,
                               rand_init=True,
                               clip_min=0.0, clip_max=1.0, targeted=False)
