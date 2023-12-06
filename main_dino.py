@@ -193,6 +193,7 @@ def train_dino(args):
     for p in teacher.parameters():
         p.requires_grad = False
     print(f"Student and Teacher are built: they are both {args.arch} network.")
+    print(student.__dict__)
     # ============ preparing data ... ============
     transform = DataAugmentationDINO(
         args.global_crops_scale,
