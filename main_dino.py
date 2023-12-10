@@ -303,9 +303,8 @@ def train_dino(args):
 
 
 def generate_attack(img, target_model):
-    adversary = LinfPGDAttack(target_model, loss_fn=None, eps=10.0, nb_iter=50, eps_iter=0.01,
-                              rand_init=True,
-                              clip_min=0.0, clip_max=1.0, targeted=False)
+    adversary = LinfPGDAttack(target_model, loss_fn=nn.MSELoss(), eps=0.03, nb_iter=50, eps_iter=0.01,
+                              rand_init=True, clip_min=0.0, clip_max=1.0, targeted=False)
     img = img.cuda()
     adv_img = adversary(img, target_model(img))
     return adv_img
