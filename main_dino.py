@@ -330,7 +330,7 @@ def train_one_epoch(student, teacher, teacher_without_ddp, dino_loss, data_loade
         # teacher and student forward passes + compute dino loss
         with torch.cuda.amp.autocast(fp16_scaler is not None):
             teacher_output = teacher(images[:2])  # only the 2 global views pass through the teacher
-            student_output = student(images[-1])
+            student_output = student(images)
             loss = dino_loss(student_output, teacher_output, epoch)
 
         if not math.isfinite(loss.item()):
@@ -396,7 +396,7 @@ class DINOLoss(nn.Module):
         Cross-entropy between softmax outputs of the teacher and student networks.
         """
         student_out = student_output / self.student_temp
-        student_out = student_out.chunk(1) #self.ncrops
+        student_out = student_out.chunk(3) #self.ncrops
 
         # teacher centering and sharpening
         temp = self.teacher_temp_schedule[epoch]
@@ -407,9 +407,9 @@ class DINOLoss(nn.Module):
         n_loss_terms = 0
         for iq, q in enumerate(teacher_out):
             for v in range(len(student_out)):
-                # if v == iq:
-                #     # we skip cases where student and teacher operate on the same view
-                #     continue
+                if v == iq:
+                    # we skip cases where student and teacher operate on the same view
+                    continue
                 loss = torch.sum(-q * F.log_softmax(student_out[v], dim=-1), dim=-1)
                 total_loss += loss.mean()
                 n_loss_terms += 1
