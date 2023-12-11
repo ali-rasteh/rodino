@@ -15,6 +15,7 @@ import os
 import argparse
 import json
 from pathlib import Path
+import time
 
 import torch
 from torch import nn
@@ -23,6 +24,7 @@ import torch.backends.cudnn as cudnn
 from torchvision import datasets
 from torchvision import transforms as pth_transforms
 from torchvision import models as torchvision_models
+from advertorch.attacks import LinfPGDAttack, L2PGDAttack
 
 import utils
 import vision_transformer as vits
@@ -62,12 +64,20 @@ def eval_linear(args):
     linear_classifier = nn.parallel.DistributedDataParallel(linear_classifier, device_ids=[args.gpu])
 
     # ============ preparing data ... ============
-    val_transform = pth_transforms.Compose([
-        pth_transforms.Resize(256, interpolation=3),
-        pth_transforms.CenterCrop(224),
-        pth_transforms.ToTensor(),
-        pth_transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
-    ])
+    if args.pgd_attack:
+        val_transform = pth_transforms.Compose([
+            pth_transforms.Resize(256, interpolation=3),
+            pth_transforms.CenterCrop(224),
+            pth_transforms.ToTensor(),
+            # pth_transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
+        ])
+    else:
+        val_transform = pth_transforms.Compose([
+            pth_transforms.Resize(256, interpolation=3),
+            pth_transforms.CenterCrop(224),
+            pth_transforms.ToTensor(),
+            pth_transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
+        ])
     dataset_val = datasets.ImageFolder(os.path.join(args.data_path, "val"), transform=val_transform)
     val_loader = torch.utils.data.DataLoader(
         dataset_val,
@@ -76,18 +86,27 @@ def eval_linear(args):
         pin_memory=True,
     )
 
+    utils.load_pretrained_linear_weights(linear_classifier, args.linear_pretrained_weights, args.arch, args.patch_size)
+    print(f"Linear model built.")
     if args.evaluate:
-        utils.load_pretrained_linear_weights(linear_classifier, args.arch, args.patch_size)
         test_stats = validate_network(val_loader, model, linear_classifier, args.n_last_blocks, args.avgpool_patchtokens)
         print(f"Accuracy of the network on the {len(dataset_val)} test images: {test_stats['acc1']:.1f}%")
         return
 
-    train_transform = pth_transforms.Compose([
-        pth_transforms.RandomResizedCrop(224),
-        pth_transforms.RandomHorizontalFlip(),
-        pth_transforms.ToTensor(),
-        pth_transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
-    ])
+    if args.pgd_attack:
+        train_transform = pth_transforms.Compose([
+            pth_transforms.RandomResizedCrop(224),
+            pth_transforms.RandomHorizontalFlip(),
+            pth_transforms.ToTensor(),
+            # pth_transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
+        ])
+    else:
+        train_transform = pth_transforms.Compose([
+            pth_transforms.RandomResizedCrop(224),
+            pth_transforms.RandomHorizontalFlip(),
+            pth_transforms.ToTensor(),
+            pth_transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
+        ])
     dataset_train = datasets.ImageFolder(os.path.join(args.data_path, "train"), transform=train_transform)
     sampler = torch.utils.data.distributed.DistributedSampler(dataset_train)
     train_loader = torch.utils.data.DataLoader(
@@ -111,7 +130,8 @@ def eval_linear(args):
     # Optionally resume from a checkpoint
     to_restore = {"epoch": 0, "best_acc": 0.}
     utils.restart_from_checkpoint(
-        os.path.join(args.output_dir, "checkpoint.pth.tar"),
+        # os.path.join(args.output_dir, "checkpoint.pth.tar"),
+        args.linear_pretrained_weights,
         run_variables=to_restore,
         state_dict=linear_classifier,
         optimizer=optimizer,
@@ -145,7 +165,8 @@ def eval_linear(args):
                 "scheduler": scheduler.state_dict(),
                 "best_acc": best_acc,
             }
-            torch.save(save_dict, os.path.join(args.output_dir, "checkpoint.pth.tar"))
+            if epoch % args.saveckp_freq == 0 or epoch == args.epochs - 1:
+                torch.save(save_dict, os.path.join(args.output_dir, f'checkpoint-linear-{epoch:03}.pth.tar'))
     print("Training of the supervised linear classifier on frozen features completed.\n"
                 "Top-1 test accuracy: {acc:.1f}".format(acc=best_acc))
 
@@ -192,7 +213,7 @@ def train(model, linear_classifier, optimizer, loader, epoch, n, avgpool):
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
 
 
-@torch.no_grad()
+# @torch.no_grad()
 def validate_network(val_loader, model, linear_classifier, n, avgpool):
     linear_classifier.eval()
     metric_logger = utils.MetricLogger(delimiter="  ")
@@ -201,6 +222,10 @@ def validate_network(val_loader, model, linear_classifier, n, avgpool):
         # move to gpu
         inp = inp.cuda(non_blocking=True)
         target = target.cuda(non_blocking=True)
+
+        if args.pgd_attack:
+            DinoClassifier = DinoPlusClassifier(model, linear_classifier, n, avgpool)
+            inp = generate_attack(DinoClassifier, inp, target)
 
         # forward
         with torch.no_grad():
@@ -234,6 +259,27 @@ def validate_network(val_loader, model, linear_classifier, n, avgpool):
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
 
 
+class DinoPlusClassifier(nn.Module):
+    def __init__(self, dino_model, linear_classifier, n, avgpool):
+        super(DinoPlusClassifier, self).__init__()
+        self.dino_model = dino_model
+        self.linear_classifier = linear_classifier
+        self.n = n
+        self.avgpool = avgpool
+
+    def forward(self, x):
+        if "vit" in args.arch:
+            intermediate_output = self.dino_model.get_intermediate_layers(x, self.n)
+            output = torch.cat([x[:, 0] for x in intermediate_output], dim=-1)
+            if self.avgpool:
+                output = torch.cat((output.unsqueeze(-1), torch.mean(intermediate_output[-1][:, 1:], dim=1).unsqueeze(-1)), dim=-1)
+                output = output.reshape(output.shape[0], -1)
+        else:
+            output = self.dino_model(x)
+        output = self.linear_classifier(output)
+        return output
+
+
 class LinearClassifier(nn.Module):
     """Linear layer to train on top of frozen features"""
     def __init__(self, dim, num_labels=1000):
@@ -251,6 +297,26 @@ class LinearClassifier(nn.Module):
         return self.linear(x)
 
 
+def generate_attack(target_model, img, label):
+    if args.pgd_attack == 'linf':
+        adversary = LinfPGDAttack(target_model, loss_fn=None, eps=args.pgd_size, nb_iter=50, eps_iter=0.01,
+                            rand_init=True, clip_min=0.0, clip_max=1.0, targeted=False)
+    elif args.pgd_attack == 'l2':
+        adversary = L2PGDAttack(target_model, loss_fn=None, eps=args.pgd_size, nb_iter=100, eps_iter=0.01,
+                            rand_init=True, clip_min=0.0, clip_max=1.0, targeted=False)
+    
+    img = img.cuda()
+    label = label.cuda()
+    # print("check 1: {}".format(time.time()))
+    adv_img = adversary(img, label)
+    # print(torch.norm(adv_img-img, p=2, dim=(1,2,3)))
+    # img = pth_transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))(img)
+    # adv_img = pth_transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))(adv_img)
+    # print(torch.norm(adv_img-img, p=2, dim=(1,2,3)))
+    # print("check 2: {}".format(time.time()))
+    return adv_img
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('Evaluation with linear classification on ImageNet')
     parser.add_argument('--n_last_blocks', default=4, type=int, help="""Concatenate [CLS] tokens
@@ -261,6 +327,7 @@ if __name__ == '__main__':
     parser.add_argument('--arch', default='vit_small', type=str, help='Architecture')
     parser.add_argument('--patch_size', default=16, type=int, help='Patch resolution of the model.')
     parser.add_argument('--pretrained_weights', default='', type=str, help="Path to pretrained weights to evaluate.")
+    parser.add_argument('--linear_pretrained_weights', default='', type=str, help="Path to linear layer pretrained weights to evaluate.")
     parser.add_argument("--checkpoint_key", default="teacher", type=str, help='Key to use in the checkpoint (example: "teacher")')
     parser.add_argument('--epochs', default=100, type=int, help='Number of epochs of training.')
     parser.add_argument("--lr", default=0.001, type=float, help="""Learning rate at the beginning of
@@ -277,5 +344,8 @@ if __name__ == '__main__':
     parser.add_argument('--output_dir', default=".", help='Path to save logs and checkpoints')
     parser.add_argument('--num_labels', default=1000, type=int, help='Number of labels for linear classifier')
     parser.add_argument('--evaluate', dest='evaluate', action='store_true', help='evaluate model on validation set')
+    parser.add_argument('--saveckp_freq', default=5, type=int, help='Save checkpoint every x epochs.')
+    parser.add_argument('--pgd_attack', default=None, type=str, help='Type of PGD attack')
+    parser.add_argument('--pgd_size', default=0.01, type=float, help='The perturbation size in the PGD attack.')
     args = parser.parse_args()
     eval_linear(args)
