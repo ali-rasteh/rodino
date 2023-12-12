@@ -37,7 +37,7 @@ def extract_feature_pipeline(args):
     ])
     dataset_train = ReturnIndexDataset(os.path.join(args.data_path, "train"), transform=transform)
     dataset_val = ReturnIndexDataset(os.path.join(args.data_path, "val"), transform=transform)
-    sampler = torch.utils.data.DistributedSampler(dataset_train, shuffle=False)
+    sampler = None #torch.utils.data.DistributedSampler(dataset_train, shuffle=False)
     data_loader_train = torch.utils.data.DataLoader(
         dataset_train,
         sampler=sampler,
