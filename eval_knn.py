@@ -16,6 +16,7 @@ import sys
 import argparse
 
 import torch
+from advertorch.attacks import LinfPGDAttack, L2PGDAttack
 from torch import nn
 import torch.distributed as dist
 import torch.backends.cudnn as cudnn
@@ -25,6 +26,18 @@ from torchvision import models as torchvision_models
 
 import utils
 import vision_transformer as vits
+
+
+def generate_attack(img_ref, target_model, eps, attack='linf'):
+    if attack == 'linf':
+        adversary = LinfPGDAttack(target_model, loss_fn=nn.MSELoss(), eps=eps, nb_iter=50,
+                                  eps_iter=0.01, rand_init=True, clip_min=0., clip_max=1., targeted=False)
+    else:
+        adversary = L2PGDAttack(target_model, loss_fn=nn.MSELoss(), eps=eps, nb_iter=100,
+                                eps_iter=0.01, rand_init=True, clip_min=0., clip_max=1., targeted=False)
+    img_ref = adversary(img_ref, target_model(img_ref))
+
+    return img_ref
 
 
 def extract_feature_pipeline(args):
@@ -37,7 +50,7 @@ def extract_feature_pipeline(args):
     ])
     dataset_train = ReturnIndexDataset(os.path.join(args.data_path, "train"), transform=transform)
     dataset_val = ReturnIndexDataset(os.path.join(args.data_path, "val"), transform=transform)
-    sampler = None #torch.utils.data.DistributedSampler(dataset_train, shuffle=False)
+    sampler = None  # torch.utils.data.DistributedSampler(dataset_train, shuffle=False)
     data_loader_train = torch.utils.data.DataLoader(
         dataset_train,
         sampler=sampler,
@@ -75,7 +88,7 @@ def extract_feature_pipeline(args):
     print("Extracting features for train set...")
     train_features = extract_features(model, data_loader_train, args.use_cuda)
     print("Extracting features for val set...")
-    test_features = extract_features(model, data_loader_val, args.use_cuda)
+    test_features = extract_features(model, data_loader_val, args.use_cuda, is_test=True)
 
     if utils.get_rank() == 0:
         train_features = nn.functional.normalize(train_features, dim=1, p=2)
@@ -93,12 +106,14 @@ def extract_feature_pipeline(args):
 
 
 @torch.no_grad()
-def extract_features(model, data_loader, use_cuda=True, multiscale=False):
+def extract_features(model, data_loader, use_cuda=True, multiscale=False, is_test=False):
     metric_logger = utils.MetricLogger(delimiter="  ")
     features = None
 
     for samples, index in metric_logger.log_every(data_loader, 10):
         samples = samples.cuda(non_blocking=True)
+        if is_test:
+            samples = generate_attack(img_ref=samples, target_model=model, eps=0.01)
         index = index.cuda(non_blocking=True)
         if multiscale:
             feats = utils.multi_scale(samples, model)
@@ -150,9 +165,9 @@ def knn_classifier(train_features, train_labels, test_features, test_labels, k, 
     for idx in range(0, num_test_images, imgs_per_chunk):
         # get the features for test images
         features = test_features[
-            idx : min((idx + imgs_per_chunk), num_test_images), :
-        ]
-        targets = test_labels[idx : min((idx + imgs_per_chunk), num_test_images)]
+                   idx: min((idx + imgs_per_chunk), num_test_images), :
+                   ]
+        targets = test_labels[idx: min((idx + imgs_per_chunk), num_test_images)]
         batch_size = targets.shape[0]
 
         # calculate the dot product and compute top-k neighbors
@@ -193,18 +208,18 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser('Evaluation with weighted k-NN on ImageNet')
     parser.add_argument('--batch_size_per_gpu', default=128, type=int, help='Per-GPU batch-size')
     parser.add_argument('--nb_knn', default=[10, 20, 100, 200], nargs='+', type=int,
-        help='Number of NN to use. 20 is usually working the best.')
+                        help='Number of NN to use. 20 is usually working the best.')
     parser.add_argument('--temperature', default=0.07, type=float,
-        help='Temperature used in the voting coefficient')
+                        help='Temperature used in the voting coefficient')
     parser.add_argument('--pretrained_weights', default='', type=str, help="Path to pretrained weights to evaluate.")
     parser.add_argument('--use_cuda', default=True, type=utils.bool_flag,
-        help="Should we store the features on GPU? We recommend setting this to False if you encounter OOM")
+                        help="Should we store the features on GPU? We recommend setting this to False if you encounter OOM")
     parser.add_argument('--arch', default='vit_small', type=str, help='Architecture')
     parser.add_argument('--patch_size', default=16, type=int, help='Patch resolution of the model.')
     parser.add_argument("--checkpoint_key", default="teacher", type=str,
-        help='Key to use in the checkpoint (example: "teacher")')
+                        help='Key to use in the checkpoint (example: "teacher")')
     parser.add_argument('--dump_features', default=None,
-        help='Path where to save computed features, empty for no saving')
+                        help='Path where to save computed features, empty for no saving')
     parser.add_argument('--load_features', default=None, help="""If the features have
         already been computed, where to find them.""")
     parser.add_argument('--num_workers', default=10, type=int, help='Number of data loading workers per GPU.')
@@ -238,6 +253,6 @@ if __name__ == '__main__':
         print("Features are ready!\nStart the k-NN classification.")
         for k in args.nb_knn:
             top1, top5 = knn_classifier(train_features, train_labels,
-                test_features, test_labels, k, args.temperature)
+                                        test_features, test_labels, k, args.temperature)
             print(f"{k}-NN classifier result: Top1: {top1}, Top5: {top5}")
     dist.barrier()
