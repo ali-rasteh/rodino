@@ -85,10 +85,11 @@ def extract_feature_pipeline(args):
     model.eval()
 
     # ============ extract features ... ============
-    print("Extracting features for train set...")
-    train_features = extract_features(model, data_loader_train, args.use_cuda)
     print("Extracting features for val set...")
     test_features = extract_features(model, data_loader_val, args.use_cuda, is_test=True)
+    print("Extracting features for train set...")
+    train_features = extract_features(model, data_loader_train, args.use_cuda)
+
 
     if utils.get_rank() == 0:
         train_features = nn.functional.normalize(train_features, dim=1, p=2)
