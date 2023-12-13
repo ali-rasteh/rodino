@@ -35,7 +35,7 @@ def generate_attack(img_ref, target_model, eps, attack='linf'):
     else:
         adversary = L2PGDAttack(target_model, loss_fn=nn.MSELoss(), eps=eps, nb_iter=100,
                                 eps_iter=0.01, rand_init=True, clip_min=0., clip_max=1., targeted=False)
-    img_ref = adversary(img_ref, target_model(img_ref))
+    img_ref = adversary(img_ref, target_model(img_ref)).clone()
 
     return img_ref
 
@@ -43,10 +43,10 @@ def generate_attack(img_ref, target_model, eps, attack='linf'):
 def extract_feature_pipeline(args):
     # ============ preparing data ... ============
     transform = pth_transforms.Compose([
-        pth_transforms.Resize(256, interpolation=3),
+        # pth_transforms.Resize(256, interpolation=3),
         pth_transforms.CenterCrop(224),
         pth_transforms.ToTensor(),
-        pth_transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
+        # pth_transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
     ])
     dataset_train = ReturnIndexDataset(os.path.join(args.data_path, "train"), transform=transform)
     dataset_val = ReturnIndexDataset(os.path.join(args.data_path, "val"), transform=transform)
