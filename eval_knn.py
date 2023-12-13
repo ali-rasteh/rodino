@@ -115,7 +115,7 @@ def extract_features(model, data_loader, use_cuda=True, multiscale=False, is_tes
     for samples, index in metric_logger.log_every(data_loader, log_freq):
         samples = samples.cuda(non_blocking=True)
         if is_test:
-            samples = generate_attack(img_ref=samples, target_model=model, eps=0.01)
+            samples = generate_attack(img_ref=samples, target_model=model, eps=0.005)
 
         with torch.no_grad():
             index = index.cuda(non_blocking=True)
