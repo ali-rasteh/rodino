@@ -110,8 +110,9 @@ def extract_feature_pipeline(args):
 def extract_features(model, data_loader, use_cuda=True, multiscale=False, is_test=False):
     metric_logger = utils.MetricLogger(delimiter="  ")
     features = None
+    log_freq = 1 if is_test else 100
 
-    for samples, index in metric_logger.log_every(data_loader, 100):
+    for samples, index in metric_logger.log_every(data_loader, log_freq):
         samples = samples.cuda(non_blocking=True)
         if is_test:
             samples = generate_attack(img_ref=samples, target_model=model, eps=0.01)
