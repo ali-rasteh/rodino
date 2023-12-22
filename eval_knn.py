@@ -11,18 +11,18 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import argparse
 import os
 import sys
-import argparse
 
 import torch
+import torch.backends.cudnn as cudnn
+import torch.distributed as dist
 from advertorch.attacks import LinfPGDAttack, L2PGDAttack
 from torch import nn
-import torch.distributed as dist
-import torch.backends.cudnn as cudnn
 from torchvision import datasets
-from torchvision import transforms as pth_transforms
 from torchvision import models as torchvision_models
+from torchvision import transforms as pth_transforms
 
 import utils
 import vision_transformer as vits
@@ -86,10 +86,10 @@ def extract_feature_pipeline(args):
 
     # ============ extract features ... ============
     print("Extracting features for val set...")
-    test_features = extract_features(model, data_loader_val, args.use_cuda, args.attack, is_test=True and args.attack)
+    test_features = extract_features(model, data_loader_val, args.use_cuda, attack=args.attack,
+                                     is_test=True and args.attack)
     print("Extracting features for train set...")
-    train_features = extract_features(model, data_loader_train, args.use_cuda, args.attack)
-
+    train_features = extract_features(model, data_loader_train, args.use_cuda, attack=args.attack)
 
     if utils.get_rank() == 0:
         train_features = nn.functional.normalize(train_features, dim=1, p=2)
@@ -231,7 +231,7 @@ if __name__ == '__main__':
         distributed training; see https://pytorch.org/docs/stable/distributed.html""")
     parser.add_argument("--local_rank", default=0, type=int, help="Please ignore and do not set this argument.")
     parser.add_argument('--data_path', default='/path/to/imagenet/', type=str)
-    parser.add_argument('--attack', default='linf', type=str)
+    parser.add_argument('--attack', default=None, type=str)
     args = parser.parse_args()
 
     utils.init_distributed_mode(args)
