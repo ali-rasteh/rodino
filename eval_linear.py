@@ -310,9 +310,10 @@ def generate_attack(target_model, img, label):
     # print("check 1: {}".format(time.time()))
     adv_img = adversary(img, label)
     # print(torch.norm(adv_img-img, p=2, dim=(1,2,3)))
+    # print(torch.norm(adv_img-img, p=float('inf'), dim=(1,2,3)))
+    # print(torch.max(adv_img-img, dim=(1,2,3)))
     # img = pth_transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))(img)
     # adv_img = pth_transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))(adv_img)
-    # print(torch.norm(adv_img-img, p=2, dim=(1,2,3)))
     # print("check 2: {}".format(time.time()))
     return adv_img
 
@@ -349,3 +350,4 @@ if __name__ == '__main__':
     parser.add_argument('--pgd_size', default=0.01, type=float, help='The perturbation size in the PGD attack.')
     args = parser.parse_args()
     eval_linear(args)
+    print("\n\n\n")
