@@ -86,9 +86,9 @@ def extract_feature_pipeline(args):
 
     # ============ extract features ... ============
     print("Extracting features for val set...")
-    test_features = extract_features(model, data_loader_val, args.use_cuda, is_test=True)
+    test_features = extract_features(model, data_loader_val, args.use_cuda, args.attack, is_test=True and args.attack)
     print("Extracting features for train set...")
-    train_features = extract_features(model, data_loader_train, args.use_cuda)
+    train_features = extract_features(model, data_loader_train, args.use_cuda, args.attack)
 
 
     if utils.get_rank() == 0:
@@ -107,7 +107,7 @@ def extract_feature_pipeline(args):
 
 
 # @torch.no_grad()
-def extract_features(model, data_loader, use_cuda=True, multiscale=False, is_test=False):
+def extract_features(model, data_loader, use_cuda=True, multiscale=False, attack='linf', is_test=False):
     metric_logger = utils.MetricLogger(delimiter="  ")
     features = None
     log_freq = 1 if is_test else 100
@@ -115,7 +115,7 @@ def extract_features(model, data_loader, use_cuda=True, multiscale=False, is_tes
     for samples, index in metric_logger.log_every(data_loader, log_freq):
         samples = samples.cuda(non_blocking=True)
         if is_test:
-            samples = generate_attack(img_ref=samples, target_model=model, eps=0.005)
+            samples = generate_attack(img_ref=samples, target_model=model, eps=0.005, attack=attack)
 
         with torch.no_grad():
             index = index.cuda(non_blocking=True)
@@ -231,6 +231,7 @@ if __name__ == '__main__':
         distributed training; see https://pytorch.org/docs/stable/distributed.html""")
     parser.add_argument("--local_rank", default=0, type=int, help="Please ignore and do not set this argument.")
     parser.add_argument('--data_path', default='/path/to/imagenet/', type=str)
+    parser.add_argument('--attack', default='linf', type=str)
     args = parser.parse_args()
 
     utils.init_distributed_mode(args)
