@@ -14,6 +14,8 @@ empirical robustness of downstream tasks by leveraging PGD attack to generate
 adversary images and adversarially train DINO which is a self-supervised
 representation learning model with Vision Transformers backbone. </p>
 
+## License
+This project is licensed under the Apache License - see the [LICENSE](LICENSE) file for details.
 
 ## Commands
 ### Training RoDINO
